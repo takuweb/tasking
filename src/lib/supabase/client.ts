@@ -1,14 +1,12 @@
 import { createBrowserClient } from '@supabase/ssr';
 
 export function createClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+  const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    // 環境変数未設定時でもアプリがクラッシュしないようダミー値をフォールバック
-    return createBrowserClient(
-      'https://dummy-placeholder.supabase.co',
-      'dummy-anon-key'
+    throw new Error(
+      '.env.local に NEXT_PUBLIC_SUPABASE_URL または NEXT_PUBLIC_SUPABASE_ANON_KEY が設定されていません。Supabaseのプロジェクト設定からキーをコピーして貼り付けてください。'
     );
   }
 

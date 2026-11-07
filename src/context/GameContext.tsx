@@ -4,7 +4,12 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Profile, Task, BattleState, ShopItem, UserInventoryItem, BattleLog, TaskDifficulty } from '@/types/database';
 import { calculateLevelUpStats, calculateDamageToMonster, generateNextMonster } from '@/lib/game/calculator';
 import { DIFFICULTY_CONFIG } from '@/types/game';
-import { createClient } from '@/lib/supabase/client';
+import {
+  getGameDataAction,
+  addTaskNeonAction,
+  completeTaskNeonAction,
+  deleteTaskNeonAction,
+} from '@/app/actions/game-actions';
 import confetti from 'canvas-confetti';
 
 interface GameContextType {
@@ -33,7 +38,7 @@ interface GameContextType {
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
-// 初期モックデータ（ゲスト時およびSupabase初回同期用）
+// 初期モックデータ（ゲスト時用）
 const DEFAULT_INITIAL_PROFILE: Profile = {
   id: 'guest-hero-id',
   username: '冒険者アルス',
@@ -188,22 +193,6 @@ const DEFAULT_INITIAL_TASKS: Task[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
-  {
-    id: 'task-3',
-    user_id: 'guest-hero-id',
-    title: '重要プロジェクトの要件定義書を1時間集中して進める',
-    description: '集中力が必要な中級クエスト。大ダメージを与えられます。',
-    task_type: 'adhoc',
-    frequency: 'none',
-    difficulty: 'medium',
-    exp_reward: 50,
-    gold_reward: 30,
-    is_completed: false,
-    completed_at: null,
-    due_date: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
 ];
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
@@ -237,94 +226,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     async function initGameData() {
       setLoading(true);
       try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+        // Neon経由のセッションチェック
+        const data = await getGameDataAction();
 
-        if (session?.user) {
-          // Supabaseログイン中
+        if (data.user && data.profile) {
+          // Neon ログイン中
           setIsGuest(false);
-          const userId = session.user.id;
-
-          // Profile取得
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-
-          if (profileData) {
-            setProfile(profileData);
-          } else {
-            // プロフィールがまだ無ければ作成
-            const initialProfile: Profile = {
-              ...DEFAULT_INITIAL_PROFILE,
-              id: userId,
-              username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || '勇者',
-            };
-            await supabase.from('profiles').insert(initialProfile);
-            setProfile(initialProfile);
-          }
-
-          // Tasks取得
-          const { data: tasksData } = await supabase
-            .from('tasks')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-
-          if (tasksData && tasksData.length > 0) {
-            setTasks(tasksData);
-          } else {
-            // 初回タスク作成
-            const initTasks = DEFAULT_INITIAL_TASKS.map(t => ({ ...t, user_id: userId, id: crypto.randomUUID() }));
-            await supabase.from('tasks').insert(initTasks);
-            setTasks(initTasks);
-          }
-
-          // BattleState取得
-          const { data: battleData } = await supabase
-            .from('battle_states')
-            .select('*')
-            .eq('user_id', userId)
-            .single();
-
-          if (battleData) {
-            setBattleState(battleData);
-          } else {
-            const initBattle = { ...DEFAULT_INITIAL_MONSTER, user_id: userId, id: crypto.randomUUID() };
-            await supabase.from('battle_states').insert(initBattle);
-            setBattleState(initBattle);
-          }
-
-          // Inventory取得
-          const { data: invData } = await supabase
-            .from('user_inventory')
-            .select('*, shop_item:shop_items(*)')
-            .eq('user_id', userId);
-
-          if (invData) {
-            setInventory(invData);
-          }
-
-          // Logs取得
-          const { data: logsData } = await supabase
-            .from('battle_logs')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-          if (logsData) {
-            setLogs(logsData);
-          }
+          setProfile(data.profile);
+          setTasks(data.tasks);
+          setBattleState(data.battleState);
+          setInventory(data.inventory);
+          setLogs(data.logs);
         } else {
           // ゲストモード (LocalStorage)
           setIsGuest(true);
-          const localProfile = localStorage.getItem('task_rpg_profile');
-          const localTasks = localStorage.getItem('task_rpg_tasks');
-          const localBattle = localStorage.getItem('task_rpg_battle');
-          const localInv = localStorage.getItem('task_rpg_inventory');
-          const localLogs = localStorage.getItem('task_rpg_logs');
+          const localProfile = typeof window !== 'undefined' ? localStorage.getItem('task_rpg_profile') : null;
+          const localTasks = typeof window !== 'undefined' ? localStorage.getItem('task_rpg_tasks') : null;
+          const localBattle = typeof window !== 'undefined' ? localStorage.getItem('task_rpg_battle') : null;
+          const localInv = typeof window !== 'undefined' ? localStorage.getItem('task_rpg_inventory') : null;
+          const localLogs = typeof window !== 'undefined' ? localStorage.getItem('task_rpg_logs') : null;
 
           setProfile(localProfile ? JSON.parse(localProfile) : DEFAULT_INITIAL_PROFILE);
           setTasks(localTasks ? JSON.parse(localTasks) : DEFAULT_INITIAL_TASKS);
@@ -341,7 +261,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           ]);
         }
       } catch (err) {
-        console.warn('Supabase接続なし、ゲストモードに切り替えます:', err);
+        console.warn('Neon接続なしまたは未ログイン、ゲストモードに切り替えます:', err);
         setIsGuest(true);
         setProfile(DEFAULT_INITIAL_PROFILE);
         setTasks(DEFAULT_INITIAL_TASKS);
@@ -364,6 +284,20 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   ) => {
     if (!profile) return;
     const config = DIFFICULTY_CONFIG[difficulty];
+
+    if (!isGuest) {
+      try {
+        const createdTask = await addTaskNeonAction(title, description, taskType, frequency, difficulty);
+        if (createdTask) {
+          setTasks([createdTask, ...tasks]);
+          return;
+        }
+      } catch (e) {
+        console.error('Neon addTask error:', e);
+      }
+    }
+
+    // ゲストまたはフォールバック
     const newTask: Task = {
       id: crypto.randomUUID(),
       user_id: profile.id,
@@ -383,11 +317,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     const nextTasks = [newTask, ...tasks];
     setTasks(nextTasks);
-
-    if (!isGuest) {
-      const supabase = createClient();
-      await supabase.from('tasks').insert(newTask);
-    } else if (battleState) {
+    if (battleState) {
       saveToLocalStorage(profile, nextTasks, battleState, inventory, logs);
     }
   };
@@ -396,11 +326,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const updateTask = async (id: string, updates: Partial<Task>) => {
     const nextTasks = tasks.map((t) => (t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t));
     setTasks(nextTasks);
-
-    if (!isGuest) {
-      const supabase = createClient();
-      await supabase.from('tasks').update(updates).eq('id', id);
-    } else if (profile && battleState) {
+    if (profile && battleState) {
       saveToLocalStorage(profile, nextTasks, battleState, inventory, logs);
     }
   };
@@ -411,35 +337,74 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setTasks(nextTasks);
 
     if (!isGuest) {
-      const supabase = createClient();
-      await supabase.from('tasks').delete().eq('id', id);
+      try {
+        await deleteTaskNeonAction(id);
+      } catch (e) {
+        console.error('Neon deleteTask error:', e);
+      }
     } else if (profile && battleState) {
       saveToLocalStorage(profile, nextTasks, battleState, inventory, logs);
     }
   };
 
-  // タスク完了処理（バトル・EXP・ゴールド連動の核心ロジック）
+  // タスク完了処理（バトル・EXP・ゴールド連動）
   const completeTask = async (id: string) => {
     const task = tasks.find((t) => t.id === id);
     if (!task || task.is_completed || !profile || !battleState) return;
 
-    // 1. ダメージ計算
+    if (!isGuest) {
+      try {
+        const result = await completeTaskNeonAction(id);
+        if (result) {
+          // 紙吹雪
+          if (result.monsterDefeated) {
+            try {
+              confetti({
+                particleCount: battleState.is_boss ? 120 : 60,
+                spread: battleState.is_boss ? 100 : 70,
+                origin: { y: 0.6 },
+                colors: battleState.is_boss ? ['#ef4444', '#f59e0b', '#8b5cf6'] : ['#10b981', '#3b82f6', '#f59e0b'],
+              });
+            } catch {}
+          }
+          if (result.levelUpData) {
+            setLevelUpModalData(result.levelUpData);
+          }
+          setLastAttackResult({
+            damage: result.damage,
+            isCritical: result.isCritical,
+            monsterDefeated: result.monsterDefeated,
+          });
+
+          // 最新データを再取得
+          const refreshed = await getGameDataAction();
+          if (refreshed.profile) {
+            setProfile(refreshed.profile);
+            setTasks(refreshed.tasks);
+            setBattleState(refreshed.battleState);
+            setLogs(refreshed.logs);
+          }
+          return;
+        }
+      } catch (e) {
+        console.error('Neon completeTask error:', e);
+      }
+    }
+
+    // ゲスト用ローカル計算
     const { damage, isCritical } = calculateDamageToMonster(profile.attack, task.difficulty);
     const newMonsterHp = Math.max(0, battleState.current_hp - damage);
     const monsterDefeated = newMonsterHp === 0;
 
-    // 攻撃ログ作成
     const attackLog: BattleLog = {
       id: crypto.randomUUID(),
       user_id: profile.id,
-      message: `${isCritical ? '⚡痛恨の会心の一撃！ ' : ''}「${task.title}」を完了し、${battleState.monster_name}に ${damage} のダメージを与えた！`,
-      log_type: isCritical ? 'attack' : 'attack',
+      message: `${isCritical ? '⚡会心の一撃！ ' : ''}「${task.title}」を完了し、${battleState.monster_name}に ${damage} のダメージを与えた！`,
+      log_type: 'attack',
       created_at: new Date().toISOString(),
     };
 
     let nextLogs = [attackLog, ...logs.slice(0, 15)];
-
-    // 2. 報酬計算（タスク報酬 + 敵討伐時の討伐報酬ボーナス）
     let earnedExp = task.exp_reward;
     let earnedGold = task.gold_reward;
     let nextBattleState: BattleState = { ...battleState, current_hp: newMonsterHp };
@@ -448,7 +413,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     let nextStageLevel = profile.stage_level;
 
     if (monsterDefeated) {
-      // 紙吹雪エフェクト発動
       try {
         confetti({
           particleCount: battleState.is_boss ? 120 : 60,
@@ -456,9 +420,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           origin: { y: 0.6 },
           colors: battleState.is_boss ? ['#ef4444', '#f59e0b', '#8b5cf6'] : ['#10b981', '#3b82f6', '#f59e0b'],
         });
-      } catch {
-        // SSR安全対策
-      }
+      } catch {}
 
       earnedExp += battleState.exp_reward;
       earnedGold += battleState.gold_reward;
@@ -468,17 +430,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         nextStageLevel += 1;
       }
 
-      // 撃破ログ
       const killLog: BattleLog = {
         id: crypto.randomUUID(),
         user_id: profile.id,
-        message: `🎉 見事 ${battleState.monster_name} を討伐！ ボーナスとして ${battleState.exp_reward} EXP と ${battleState.gold_reward} G を獲得！`,
+        message: `🎉 見事 ${battleState.monster_name} を討伐！ +${battleState.exp_reward} EXP / +${battleState.gold_reward} G を獲得！`,
         log_type: 'kill',
         created_at: new Date().toISOString(),
       };
       nextLogs = [killLog, ...nextLogs];
 
-      // 次の敵を生成
       const nextMonsterData = generateNextMonster(newMonstersDefeated, nextStageLevel);
       nextBattleState = {
         ...nextBattleState,
@@ -487,7 +447,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    // 3. レベルアップ計算
     const levelResult = calculateLevelUpStats(profile, earnedExp);
     if (levelResult.leveledUp) {
       setLevelUpModalData({
@@ -498,14 +457,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const levelLog: BattleLog = {
         id: crypto.randomUUID(),
         user_id: profile.id,
-        message: `✨ レベルアップ！ Lv.${levelResult.newLevel} に到達！ HPが全快しステータスが上昇した！`,
+        message: `✨ レベルアップ！ Lv.${levelResult.newLevel} に到達！ HP全快 & ステータス上昇！`,
         log_type: 'level_up',
         created_at: new Date().toISOString(),
       };
       nextLogs = [levelLog, ...nextLogs];
     }
 
-    // 4. 新しいプロファイル
     const nextProfile: Profile = {
       ...profile,
       level: levelResult.newLevel,
@@ -522,52 +480,32 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       updated_at: new Date().toISOString(),
     };
 
-    // 5. タスクを完了状態に更新
     const nextTasks = tasks.map((t) =>
       t.id === id ? { ...t, is_completed: true, completed_at: new Date().toISOString() } : t
     );
 
-    // 状態更新
     setProfile(nextProfile);
     setTasks(nextTasks);
     setBattleState(nextBattleState);
     setLogs(nextLogs);
     setLastAttackResult({ damage, isCritical, monsterDefeated });
 
-    // 永続化
-    if (!isGuest) {
-      const supabase = createClient();
-      await Promise.all([
-        supabase.from('tasks').update({ is_completed: true, completed_at: new Date().toISOString() }).eq('id', id),
-        supabase.from('profiles').update(nextProfile).eq('id', profile.id),
-        supabase.from('battle_states').update(nextBattleState).eq('user_id', profile.id),
-        supabase.from('battle_logs').insert(nextLogs.slice(0, 2)),
-      ]);
-    } else {
-      saveToLocalStorage(nextProfile, nextTasks, nextBattleState, inventory, nextLogs);
-    }
+    saveToLocalStorage(nextProfile, nextTasks, nextBattleState, inventory, nextLogs);
   };
 
-  // タスク完了取り消し
   const uncompleteTask = async (id: string) => {
     const nextTasks = tasks.map((t) =>
       t.id === id ? { ...t, is_completed: false, completed_at: null } : t
     );
     setTasks(nextTasks);
-
-    if (!isGuest) {
-      const supabase = createClient();
-      await supabase.from('tasks').update({ is_completed: false, completed_at: null }).eq('id', id);
-    } else if (profile && battleState) {
+    if (profile && battleState) {
       saveToLocalStorage(profile, nextTasks, battleState, inventory, logs);
     }
   };
 
-  // ショップアイテム購入
   const buyItem = async (item: ShopItem): Promise<boolean> => {
     if (!profile || profile.gold < item.price) return false;
 
-    // ポーションの場合は即時回復
     if (item.item_type === 'potion') {
       const nextProfile: Profile = {
         ...profile,
@@ -575,7 +513,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         hp: profile.max_hp,
       };
       setProfile(nextProfile);
-
       const healLog: BattleLog = {
         id: crypto.randomUUID(),
         user_id: profile.id,
@@ -585,18 +522,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       };
       const nextLogs = [healLog, ...logs];
       setLogs(nextLogs);
-
-      if (!isGuest) {
-        const supabase = createClient();
-        await supabase.from('profiles').update(nextProfile).eq('id', profile.id);
-        await supabase.from('battle_logs').insert(healLog);
-      } else if (battleState) {
+      if (battleState) {
         saveToLocalStorage(nextProfile, tasks, battleState, inventory, nextLogs);
       }
       return true;
     }
 
-    // 装備アイテムのインベントリ追加
     const existing = inventory.find((i) => i.item_id === item.id);
     let nextInventory: UserInventoryItem[];
 
@@ -635,17 +566,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setInventory(nextInventory);
     setLogs(nextLogs);
 
-    if (!isGuest) {
-      const supabase = createClient();
-      await supabase.from('profiles').update(nextProfile).eq('id', profile.id);
-      await supabase.from('battle_logs').insert(buyLog);
-    } else if (battleState) {
+    if (battleState) {
       saveToLocalStorage(nextProfile, tasks, battleState, nextInventory, nextLogs);
     }
     return true;
   };
 
-  // 装備の切り替え
   const equipItem = async (userInventoryId: string) => {
     if (!profile) return;
     const targetItem = inventory.find((i) => i.id === userInventoryId);
@@ -654,7 +580,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const item = targetItem.shop_item;
     const isNowEquipped = !targetItem.is_equipped;
 
-    // 同じ種類の既存装備を解除
     const nextInventory = inventory.map((inv) => {
       if (inv.id === userInventoryId) {
         return { ...inv, is_equipped: isNowEquipped };
@@ -665,7 +590,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return inv;
     });
 
-    // 装備ボーナスステータス計算
     const statMod = isNowEquipped ? 1 : -1;
     const nextProfile: Profile = {
       ...profile,
@@ -682,7 +606,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       id: crypto.randomUUID(),
       user_id: profile.id,
       message: isNowEquipped
-        ? `🛡️「${item.name}」を装備した！ (ATK:+${item.attack_bonus}, DEF:+${item.defense_bonus}, HP:+${item.hp_bonus})`
+        ? `🛡️「${item.name}」を装備した！`
         : `🛡️「${item.name}」を外した。`,
       log_type: 'item',
       created_at: new Date().toISOString(),
@@ -690,10 +614,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const nextLogs = [equipLog, ...logs];
     setLogs(nextLogs);
 
-    if (!isGuest) {
-      const supabase = createClient();
-      await supabase.from('profiles').update(nextProfile).eq('id', profile.id);
-    } else if (battleState) {
+    if (battleState) {
       saveToLocalStorage(nextProfile, tasks, battleState, nextInventory, nextLogs);
     }
   };

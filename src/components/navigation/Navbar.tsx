@@ -3,7 +3,7 @@
 import { useGame } from '@/context/GameContext';
 import { useRouter } from 'next/navigation';
 import { Sword, Shield, Scroll, LogOut, Flame, Heart, Sparkles, User, RefreshCw, KeyRound } from 'lucide-react';
-import { signout } from '@/app/auth/actions';
+import { logoutAction } from '@/app/auth/neon-actions';
 
 interface NavbarProps {
   currentTab: 'battle' | 'tasks' | 'character';
@@ -15,6 +15,13 @@ export default function Navbar({ currentTab, onTabChange }: NavbarProps) {
   const router = useRouter();
 
   if (!profile) return null;
+
+  const handleSignOut = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('task_rpg_logged_user');
+    }
+    await logoutAction();
+  };
 
   return (
     <header className="sticky top-0 z-40 w-full bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
@@ -106,7 +113,7 @@ export default function Navbar({ currentTab, onTabChange }: NavbarProps) {
             </button>
           ) : (
             <button
-              onClick={() => signout()}
+              onClick={handleSignOut}
               className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition"
               title="ログアウト"
             >
