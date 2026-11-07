@@ -14,11 +14,11 @@ export async function getGameDataAction() {
   const userId = session.userId;
 
   const [profiles, tasks, battles, inventories, logs] = await Promise.all([
-    sql`SELECT * FROM profiles WHERE user_id = ${userId} LIMIT 1`,
-    sql`SELECT * FROM tasks WHERE user_id = ${userId} ORDER BY created_at DESC`,
-    sql`SELECT * FROM battle_states WHERE user_id = ${userId} LIMIT 1`,
-    sql`SELECT * FROM user_inventory WHERE user_id = ${userId}`,
-    sql`SELECT * FROM battle_logs WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 15`,
+    sql`SELECT * FROM rpg_profiles WHERE user_id = ${userId} LIMIT 1`,
+    sql`SELECT * FROM rpg_tasks WHERE user_id = ${userId} ORDER BY created_at DESC`,
+    sql`SELECT * FROM rpg_battle_states WHERE user_id = ${userId} LIMIT 1`,
+    sql`SELECT * FROM rpg_user_inventory WHERE user_id = ${userId}`,
+    sql`SELECT * FROM rpg_battle_logs WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 15`,
   ]);
 
   return {
@@ -45,7 +45,7 @@ export async function addTaskNeonAction(
   const config = DIFFICULTY_CONFIG[difficulty];
 
   const [newTask] = await sql`
-    INSERT INTO tasks (user_id, title, description, task_type, frequency, difficulty, exp_reward, gold_reward)
+    INSERT INTO rpg_tasks (user_id, title, description, task_type, frequency, difficulty, exp_reward, gold_reward)
     VALUES (${session.userId}, ${title}, ${description}, ${taskType}, ${frequency}, ${difficulty}, ${config.exp}, ${config.gold})
     RETURNING *
   `;
@@ -62,9 +62,9 @@ export async function completeTaskNeonAction(taskId: string) {
 
   // 1. タスク、プロファイル、バトル状態を取得
   const [tasks, profiles, battles] = await Promise.all([
-    sql`SELECT * FROM tasks WHERE id = ${taskId} AND user_id = ${userId} LIMIT 1`,
-    sql`SELECT * FROM profiles WHERE user_id = ${userId} LIMIT 1`,
-    sql`SELECT * FROM battle_states WHERE user_id = ${userId} LIMIT 1`,
+    sql`SELECT * FROM rpg_tasks WHERE id = ${taskId} AND user_id = ${userId} LIMIT 1`,
+    sql`SELECT * FROM rpg_profiles WHERE user_id = ${userId} LIMIT 1`,
+    sql`SELECT * FROM rpg_battle_states WHERE user_id = ${userId} LIMIT 1`,
   ]);
 
   const task = tasks[0] as unknown as Task;
@@ -137,13 +137,13 @@ export async function completeTaskNeonAction(taskId: string) {
 
   // 4. DB更新
   await sql`
-    UPDATE tasks
+    UPDATE rpg_tasks
     SET is_completed = TRUE, completed_at = NOW(), updated_at = NOW()
     WHERE id = ${taskId}
   `;
 
   await sql`
-    UPDATE profiles
+    UPDATE rpg_profiles
     SET level = ${levelStats.newLevel},
         exp = ${levelStats.newExp},
         max_exp = ${levelStats.newMaxExp},
@@ -160,7 +160,7 @@ export async function completeTaskNeonAction(taskId: string) {
   `;
 
   await sql`
-    UPDATE battle_states
+    UPDATE rpg_battle_states
     SET monster_name = ${nextMonsterData.monster_name},
         monster_type = ${nextMonsterData.monster_type},
         monster_level = ${nextMonsterData.monster_level},
@@ -177,7 +177,7 @@ export async function completeTaskNeonAction(taskId: string) {
 
   for (const log of newLogs) {
     await sql`
-      INSERT INTO battle_logs (user_id, message, log_type)
+      INSERT INTO rpg_battle_logs (user_id, message, log_type)
       VALUES (${userId}, ${log.message}, ${log.log_type})
     `;
   }
@@ -196,5 +196,5 @@ export async function deleteTaskNeonAction(taskId: string) {
   const session = await getSessionUser();
   if (!session) throw new Error('未認証です');
   const sql = getDb();
-  await sql`DELETE FROM tasks WHERE id = ${taskId} AND user_id = ${session.userId}`;
+  await sql`DELETE FROM rpg_tasks WHERE id = ${taskId} AND user_id = ${session.userId}`;
 }

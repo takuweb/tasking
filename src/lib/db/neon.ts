@@ -16,14 +16,15 @@ export function getDb() {
 }
 
 /**
- * データベーステーブルの自動初期化（初回のみ実行）
- * ユーザーがSQLを手動実行していなくても自動で全テーブルを作成します
+ * データベーステーブルの自動初期化
+ * 既存テーブルとの衝突を防ぐため rpg_ プレフィックスを使用
  */
 export async function ensureTablesExist() {
   const sql = getDb();
 
+  // 1. rpg_users テーブル
   await sql`
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS rpg_users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       username VARCHAR(50) UNIQUE NOT NULL,
       display_name TEXT NOT NULL,
@@ -32,9 +33,10 @@ export async function ensureTablesExist() {
     );
   `;
 
+  // 2. rpg_profiles テーブル
   await sql`
-    CREATE TABLE IF NOT EXISTS profiles (
-      user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS rpg_profiles (
+      user_id UUID PRIMARY KEY REFERENCES rpg_users(id) ON DELETE CASCADE,
       username TEXT NOT NULL,
       title TEXT NOT NULL DEFAULT '見習い冒険者',
       level INT NOT NULL DEFAULT 1,
@@ -56,9 +58,10 @@ export async function ensureTablesExist() {
     );
   `;
 
+  // 3. rpg_battle_states テーブル
   await sql`
-    CREATE TABLE IF NOT EXISTS battle_states (
-      user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS rpg_battle_states (
+      user_id UUID PRIMARY KEY REFERENCES rpg_users(id) ON DELETE CASCADE,
       monster_name TEXT NOT NULL DEFAULT '怠惰のスライム',
       monster_type VARCHAR(30) NOT NULL DEFAULT 'slime',
       monster_level INT NOT NULL DEFAULT 1,
@@ -73,10 +76,11 @@ export async function ensureTablesExist() {
     );
   `;
 
+  // 4. rpg_tasks テーブル
   await sql`
-    CREATE TABLE IF NOT EXISTS tasks (
+    CREATE TABLE IF NOT EXISTS rpg_tasks (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES rpg_users(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       description TEXT DEFAULT '',
       task_type VARCHAR(20) NOT NULL DEFAULT 'adhoc',
@@ -92,10 +96,11 @@ export async function ensureTablesExist() {
     );
   `;
 
+  // 5. rpg_user_inventory テーブル
   await sql`
-    CREATE TABLE IF NOT EXISTS user_inventory (
+    CREATE TABLE IF NOT EXISTS rpg_user_inventory (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES rpg_users(id) ON DELETE CASCADE,
       item_id VARCHAR(50) NOT NULL,
       is_equipped BOOLEAN NOT NULL DEFAULT FALSE,
       quantity INT NOT NULL DEFAULT 1,
@@ -104,10 +109,11 @@ export async function ensureTablesExist() {
     );
   `;
 
+  // 6. rpg_battle_logs テーブル
   await sql`
-    CREATE TABLE IF NOT EXISTS battle_logs (
+    CREATE TABLE IF NOT EXISTS rpg_battle_logs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES rpg_users(id) ON DELETE CASCADE,
       message TEXT NOT NULL,
       log_type VARCHAR(20) NOT NULL DEFAULT 'attack',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

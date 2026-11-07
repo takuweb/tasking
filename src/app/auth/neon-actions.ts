@@ -24,7 +24,7 @@ export async function signupAction(formData: FormData) {
 
     // 2. 既存ユーザーチェック
     const existing = await sql`
-      SELECT id FROM users WHERE username = ${username} LIMIT 1
+      SELECT id FROM rpg_users WHERE username = ${username} LIMIT 1
     `;
     if (existing.length > 0) {
       return { error: 'その冒険者IDは既に使用されています。別のIDをお試しください。' };
@@ -35,7 +35,7 @@ export async function signupAction(formData: FormData) {
 
     // 4. ユーザー作成
     const [newUser] = await sql`
-      INSERT INTO users (username, display_name, password_hash)
+      INSERT INTO rpg_users (username, display_name, password_hash)
       VALUES (${username}, ${displayName}, ${passwordHash})
       RETURNING id, username, display_name
     `;
@@ -44,19 +44,19 @@ export async function signupAction(formData: FormData) {
 
     // 5. 初期プロファイル作成
     await sql`
-      INSERT INTO profiles (user_id, username, title, level, exp, max_exp, hp, max_hp, attack, defense, gold)
+      INSERT INTO rpg_profiles (user_id, username, title, level, exp, max_exp, hp, max_hp, attack, defense, gold)
       VALUES (${userId}, ${displayName}, '見習い冒険者', 1, 0, 100, 100, 100, 15, 5, 60)
     `;
 
     // 6. 初期バトル状態作成
     await sql`
-      INSERT INTO battle_states (user_id, monster_name, monster_type, monster_level, is_boss, max_hp, current_hp, attack, exp_reward, gold_reward, sprite_type)
+      INSERT INTO rpg_battle_states (user_id, monster_name, monster_type, monster_level, is_boss, max_hp, current_hp, attack, exp_reward, gold_reward, sprite_type)
       VALUES (${userId}, '怠惰のスライム', 'slime', 1, false, 60, 60, 6, 35, 20, 'slime')
     `;
 
     // 7. 初期タスク作成
     await sql`
-      INSERT INTO tasks (user_id, title, description, task_type, difficulty, exp_reward, gold_reward)
+      INSERT INTO rpg_tasks (user_id, title, description, task_type, difficulty, exp_reward, gold_reward)
       VALUES
         (${userId}, 'チュートリアル: このタスクにチェックを入れてスライムを攻撃！', 'タスク完了で敵にダメージを与えられます。', 'adhoc', 'easy', 25, 15),
         (${userId}, '朝の水分補給と軽いストレッチ', '毎朝の健康のためのデイリークエストです。', 'routine', 'easy', 20, 10)
@@ -64,7 +64,7 @@ export async function signupAction(formData: FormData) {
 
     // 8. 初期ログ作成
     await sql`
-      INSERT INTO battle_logs (user_id, message, log_type)
+      INSERT INTO rpg_battle_logs (user_id, message, log_type)
       VALUES (${userId}, '冒険の書が刻まれた！日々のタスクを力に変えて戦おう！', 'item')
     `;
 
@@ -98,7 +98,7 @@ export async function loginAction(formData: FormData) {
     // ユーザー検索
     const users = await sql`
       SELECT id, username, display_name, password_hash
-      FROM users
+      FROM rpg_users
       WHERE username = ${username}
       LIMIT 1
     `;
